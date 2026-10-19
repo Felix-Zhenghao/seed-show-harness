@@ -1,0 +1,6 @@
+${previous_prompt}
+
+Use the task, stage, images, and rules above to choose exactly one token from this list:
+${allowed_tokens}
+
+Final answer: exactly one allowed token, no JSON, no markdown, no prose.

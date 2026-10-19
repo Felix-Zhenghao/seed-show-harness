@@ -1,0 +1,5 @@
+Measured robot state: ${state}
+${height}
+
+[height]
+The gripper is ${gap_cm} cm above the table.

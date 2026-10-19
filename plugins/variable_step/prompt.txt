@@ -1,0 +1,8 @@
+Coarse EEF steps move ~${coarse_cm} cm for MV_UP, above ${high_cm} cm from the table, or when the target is outside the wrist view. Otherwise use fine steps. All translations follow the current wrist axes.
+${hint}
+
+[holding]
+Holding an object: lift until clear of the table; descend only to place.
+
+[descending]
+If height > ${high_cm} cm, approach the target's height using the current wrist orientation and camera views.

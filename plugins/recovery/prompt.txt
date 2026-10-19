@@ -1,0 +1,13 @@
+Recovery: ${note}
+
+[empty_grasp]
+Empty close; do not retry on an edge/corner. Recenter body and confirm depth.
+
+[unverified_grasp]
+Grasp not verified; continue GRASP until width and images show a real hold.
+
+[lost_grasp]
+Grasp lost; return to GRASP, recenter the object body, then confirm depth.
+
+[grasp_unsettled]
+Closed width is unsettled; wait before moving.

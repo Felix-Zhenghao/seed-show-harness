@@ -1,0 +1,1 @@
+Empty closed gripper automatically reopened; realign the target and confirm grasp depth.
