@@ -9,7 +9,7 @@ import pytest
 
 from context import create_context
 from core.prompting.composer import (
-    compose, controller_prompt, decision_prompt, planner_prompt, token_prompt, token_retry_prompt,
+    compose, controller_prompt, controller_prompts, planner_prompt, token_prompt, token_retry_prompt,
 )
 from core.prompting.content import PromptContent, PromptImage, message_blocks, prompt_text
 from core.vlm.roles import ControllerAgent
@@ -17,6 +17,8 @@ from core.vlm.vlm_client import VLMParseError, VLMResponse, _message_content
 from plugins.action_chunk import build as action_chunk
 from plugins.auto_release import build as auto_release
 from plugins.base import build as base
+from plugins.decision_json import build as decision_json
+from plugins.decision_output import build as decision_output
 from plugins.mem_text import build as mem_text
 from plugins.recovery import build as recovery
 from plugins.subgoal import build as subgoal
@@ -136,22 +138,37 @@ def test_stage_key_order_does_not_change_prompt_prefix(context):
 
 def test_decision_and_token_repairs_keep_shared_prompt_and_camera_order(context):
     shared = controller_prompt(context)
-    context["previous_prompt"] = shared
-    decision = decision_prompt(context)
-    token = token_prompt(context)
+    decision, token = controller_prompts(context)
     strict = token_retry_prompt({**context, "previous_prompt": token})
     agentview, wrist = (np.full((2, 2, 3), value, dtype=np.uint8) for value in (10, 20))
     expected_images = message_blocks(PromptContent((PromptImage(agentview), PromptImage(wrist))))
     for prompt in (decision, token, strict):
         blocks = _message_content(prompt, agentview, wrist, image_detail="high", context=context)
         assert [b["type"] for b in blocks] == ["text", "image_url", "image_url"]
-        assert blocks[0]["text"].startswith(shared)
+        assert blocks[0]["text"].startswith(base.build_instructions(context))
         assert [b["image_url"]["url"] for b in blocks[1:]] == [
             b["image_url"]["url"] for b in expected_images
         ]
         assert all(b["image_url"]["detail"] == "high" for b in blocks[1:])
     assert 'Return JSON only: {"decision"' in decision
     assert 'Return JSON only: {"decision"' not in token
+    assert token == token_prompt({**context, "previous_prompt": shared})
+    assert decision.index(decision_output.build(context)) < decision.index("Your current task:")
+    assert decision.index(decision_json.build(context)) < decision.index("Your current task:")
+
+
+@pytest.mark.parametrize("output_enabled", [False, True])
+@pytest.mark.parametrize("json_enabled", [False, True])
+def test_controller_output_contract_switches_are_independent(context, output_enabled, json_enabled):
+    context["plugins"].update(decision_output=output_enabled, decision_json=json_enabled)
+    decision, token = controller_prompts(context)
+    prefix = decision.split("Your current task:\n", 1)[0]
+    assert ('Return JSON only: {"decision"' in prefix) is output_enabled
+    assert ('Put "decision" first.' in prefix) is json_enabled
+    assert 'Return JSON only' not in token
+    assert '"step_size_reasoning"' not in token
+    if not output_enabled and not json_enabled:
+        assert decision == controller_prompt(context)
 
 
 def test_base_refreshes_action_sizes_task_and_subgoal(context):
@@ -198,6 +215,7 @@ def test_controller_refreshes_history_and_height(context):
 def test_only_enabled_plugins_contribute(context):
     context["plugins"] = {name: False for name in context["plugins"]}
     assert controller_prompt(context) == ""
+    assert controller_prompts(context) == ("", "")
     context["plugins"].update(base=True)
     result = controller_prompt(context)
     assert "Your current task:\nMove the cup" in result and '"completion": "The cup is held"' in result

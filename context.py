@@ -70,9 +70,9 @@ def create_context() -> dict:
             "rotation_enabled": True,
             "rotation_step_deg": 15,  # Base-fixed rotation axes through the TCP.
             # Inclusive bounds for model overrides only; omitted/null sizes use the defaults.
-            "min_distance_m": 0.0001,
-            "max_distance_m": 1.0,
-            "min_angle_deg": 0.01,
+            "min_distance_m": 0.001,
+            "max_distance_m": 0.2,
+            "min_angle_deg": 1,
             "max_angle_deg": 180.0,
             "sim_steps": 10,  # Hold each Cartesian target for this many control steps.
             "gripper_steps": 15,

@@ -4,7 +4,7 @@ import json
 from typing import Any, Sequence
 
 from core.action_units import MOVE_ATOMS
-from core.prompting.composer import controller_prompt, decision_prompt, token_prompt
+from core.prompting.composer import controller_prompts
 from core.prompting.content import Prompt, prompt_text
 from core.step_size import parse_step_size, size_bounds
 from plugins.action_chunk import build as action_chunk
@@ -229,10 +229,7 @@ class ControllerAgent:
         allowed_tokens = context["allowed_tokens"]
         previous_direction = context["previous_direction"]
         # Build world-dependent chunks once; retries keep the exact same observation context.
-        base_prompt = controller_prompt(context)
-        output_context = {**context, "previous_prompt": base_prompt}
-        prompt = decision_prompt(output_context)
-        token_only_prompt = token_prompt(output_context)
+        prompt, token_only_prompt = controller_prompts(context)
         self.last_prompt = prompt_text(prompt)
         fallback_token = previous_direction if previous_direction in MOVE_ATOMS else "MV_DOWN"
         response = _complete_decision_json(

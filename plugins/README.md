@@ -32,10 +32,14 @@ inside the plugin and never reinterprets inserted text.
 Keep reusable instructions before changing values to improve provider prefix-cache
 reuse. The controller groups base, extra-context, wrist, action-plan, coarse-step, and memory
 rules before task/stage data, measured state, history, and feedback. The planner puts
-its output instructions before task/stage data too. Decision/token output contracts
-remain appended so retries can reuse the same already-built context without repeating
-plugin side effects. Model transport appends current camera images after the prompt,
-preserving Agentview/Wristview order and any image positions inside plugin content.
+its output instructions before task/stage data too. `controller_prompts(context)`
+builds the shared instructions and live state once, then returns the JSON decision
+and token fallback. JSON output and step-size rules go between shared instructions
+and live state, making them part of the reusable prefix. The token fallback uses the
+same completed sections without JSON-only rules, then appends its token contract.
+Retries never repeat plugin side effects. Model transport appends current camera
+images after the prompt, preserving Agentview/Wristview order and any image positions
+inside plugin content.
 Do not memoize live builder results: affordance markers and observations must refresh.
 
 ## Add a plugin

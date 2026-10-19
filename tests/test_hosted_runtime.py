@@ -10,8 +10,12 @@ import pytest
 
 from context import create_context
 from core.prompting.composer import planner_prompt
+from core.prompting.content import PromptContent, PromptImage
 from core.sim.libero_model import DebugTrace, LiberoVLMClient
 from core.vlm.roles import ControllerAgent
+from plugins.affordance import build as affordance
+from plugins.decision_json import build as decision_json
+from plugins.decision_output import build as decision_output
 from plugins.subgoal import build as subgoal
 from plugins.whole_task_stage import build as whole_task_stage
 
@@ -121,6 +125,89 @@ def test_controller_parse_retry_uses_enabled_actions(client, monkeypatch):
     assert len(payloads) == 2
     assert "response_format" not in payloads[1]
     assert payloads[1]["max_tokens"] == client.max_tokens
+
+
+def test_controller_output_rules_survive_in_prefix_when_observations_change(client, monkeypatch):
+    payloads = []
+
+    def post(url, json, timeout):
+        payloads.append(json)
+        return reply(completion('{"decision":"MV_UP","reasoning":"Lift clear."}'))
+
+    monkeypatch.setattr(client.session, "post", post)
+    context = make_context(
+        client=client, task="Move the cup", recent_moves=["MV_RIGHT"],
+        subgoal={"motion": "GRASP", "target": "cup", "affordance": "rim"},
+    )
+    context["semantic_eef_action"].update(max_distance_m=0.05, max_angle_deg=30)
+    contracts = [decision_output.build(context), decision_json.build(context)]
+    agent = ControllerAgent(client)
+    agent.decide(context)
+    context.update(task="Open the drawer", subgoal={"motion": "PULL", "affordance": "handle"},
+                   gripper_state="CLOSED", recent_moves=["GRASP"], recovery="auto_release",
+                   agentview_image=np.ones((8, 8, 3), dtype=np.uint8), wrist_image=None)
+    context["proprioception"]["eef_pos"][2] = 1.0
+    agent.decide(context)
+
+    before, after = [p["messages"][0]["content"] for p in payloads]
+    first_text, second_text = before[0]["text"], after[0]["text"]
+    prefix = first_text.split("Your current task:\n", 1)[0]
+    assert second_text.split("Your current task:\n", 1)[0] == prefix
+    for contract in contracts:
+        assert contract in prefix
+        assert first_text.count(contract) == second_text.count(contract) == 1
+    assert "[0.0001, 0.05]" in prefix and "[0.01, 30]" in prefix
+    assert "Open the drawer" in second_text and '"affordance": "handle"' in second_text
+    assert '"gripper_state": "CLOSED"' in second_text and "20.0 cm above the table" in second_text
+    assert "Recent moves, newest first: GRASP" in second_text
+    assert "automatically reopened" in second_text and "Move the cup" not in second_text
+    assert [b["type"] for b in before] == ["text", "image_url", "image_url"]
+    assert [b["type"] for b in after] == ["text", "image_url"]
+    assert before[1]["image_url"] != after[1]["image_url"]
+
+
+def test_controller_repairs_reuse_live_plugin_results_and_images_once(client, monkeypatch):
+    builds, payloads = [], []
+    marker = np.full((2, 2, 3), 100, dtype=np.uint8)
+
+    def mark(context):
+        builds.append(context)
+        context["agentview_image"] = np.full((8, 8, 3), 42, dtype=np.uint8)
+        context["wrist_image"] = np.full((8, 8, 3), 84, dtype=np.uint8)
+        return PromptContent(("Current contact:", PromptImage(marker, "high"), "Keep this contact."))
+
+    monkeypatch.setattr(affordance, "build", mark)
+    answers = iter(["invalid", "invalid", "MV_UP"])
+
+    def post(url, json, timeout):
+        payloads.append(json)
+        return reply(completion(next(answers)))
+
+    monkeypatch.setattr(client.session, "post", post)
+    context = make_context(client=client, task="Move ${literal} cup", recent_moves=["MV_RIGHT"])
+    context["plugins"]["affordance"] = True
+    # Plugin text resembling a section heading must not become a parsing boundary.
+    context["extra_context"] = "Literal heading: Your current task:\nKeep this exact instruction."
+    agent = ControllerAgent(client)
+    assert agent.decide(context).token == "MV_UP"
+    assert len(builds) == 1 and len(payloads) == 3
+
+    first, retry, strict = [p["messages"][0]["content"] for p in payloads]
+    contracts = [decision_output.build(context), decision_json.build(context)]
+    for blocks in (first, retry, strict):
+        assert [b["type"] for b in blocks] == ["text", "image_url", "text", "image_url", "image_url"]
+        assert context["extra_context"] in blocks[0]["text"]
+        assert "Move ${literal} cup" in blocks[0]["text"]
+        assert blocks[1] == first[1]  # The plugin's inline image and detail survive.
+        assert blocks[3:] == first[3:]  # The same marked Agentview/Wristview reach every retry.
+        assert blocks[2]["text"].startswith("Keep this contact.")
+        assert "Recent moves, newest first: MV_RIGHT" in blocks[2]["text"]
+    for contract in contracts:
+        assert first[0]["text"].index(contract) < first[0]["text"].index("Move ${literal} cup")
+        for blocks in (retry, strict):
+            assert all(contract not in b.get("text", "") for b in blocks)
+            assert '"distance_m"' not in "\n".join(b.get("text", "") for b in blocks)
+    assert '"step_size_reasoning"' in agent.last_prompt
 
 
 def test_configured_plugins_reach_controller_and_transport_repairs(client, monkeypatch, tmp_path):

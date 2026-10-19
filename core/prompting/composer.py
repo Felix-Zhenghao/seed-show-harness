@@ -24,22 +24,37 @@ def compose(context, *builders):
 
 
 def controller_prompt(context):
-    return compose(
+    return join_content(_controller_parts(context))
+
+
+def _controller_parts(context):
+    """Keep the instruction/state boundary without parsing completed plugin text."""
+    instructions = compose(
         context, base.build_instructions, extra_context.build,
         wrist_visibility.build, action_chunk.build, variable_step.build_instructions,
         mem_text.build_instructions,
-        base.build_state, variable_step.build_state, affordance.build, proprioception.build,
+    )
+    state = compose(
+        context, base.build_state, variable_step.build_state, affordance.build, proprioception.build,
         mem_text.build_state, recovery.build, auto_release.build,
     )
+    return instructions, state
+
+
+def controller_prompts(context):
+    """Build the JSON decision and token fallback from one observation's results."""
+    instructions, state = _controller_parts(context)
+    output_context = {
+        **context, "previous_prompt": join_content((instructions, state)),
+    }
+    contract = compose(output_context, decision_output.build, decision_json.build)
+    decision = join_content((instructions, contract, state))
+    return decision, token_prompt(output_context)
 
 
 def planner_prompt(context):
     return compose(context, base.build_instructions, extra_context.build, subgoal.build,
                    base.build_state)
-
-
-def decision_prompt(context):
-    return join_content((context["previous_prompt"], compose(context, decision_output.build, decision_json.build)))
 
 
 def token_prompt(context):

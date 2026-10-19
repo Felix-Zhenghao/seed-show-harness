@@ -87,7 +87,10 @@ Prompts place reusable instructions before task/subgoal data and per-step feedba
 then append the current Agentview and Wristview images in that order. The base,
 variable-step, and memory plugins expose `build_instructions(context)` and `build_state(context)`
 so the composer can group their rules before live data; `build(context)` still returns
-the complete standalone text. Affordance calls also put rules (and the simulator
+the complete standalone text. `controller_prompts(context)` builds the JSON decision
+and token fallback together, reusing the same completed instructions and live state.
+The JSON decision places its output format and step-size rules before live state;
+the token fallback omits those rules. Affordance calls also put rules (and the simulator
 catalog for selection) before task, stage, part, and view details.
 
 This gives the provider a stable prefix to cache without reusing old observations or
