@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation
 
-from core.action_units import CAMERA_ATOMS, RT_ATOMS
+from core.action_units import CAMERA_ATOMS, MOVE_ATOMS, RT_ATOMS
 from context import create_context
 from core.sim.libero_config import perturbed, select_tasks, validate_context
 from core.sim.libero_model import DebugTrace, LiberoVLMClient
@@ -17,7 +17,7 @@ from core.sim.libero_tasks import language, prepare_task, task_assets
 from core.vlm.roles import ControllerAgent
 from core.vlm.vlm_client import VLMResponse
 from interpreters.libero_atomic_controller import (
-    LiberoAtomicController, displayed_camera_axes, move_camera,
+    LiberoAtomicController, move_camera,
 )
 
 
@@ -151,25 +151,34 @@ def fake_sim(rotation=None, parent_rotation=None):
     return SimpleNamespace(model=model, data=data, forward=forward)
 
 
-@pytest.mark.parametrize("token,axis", [("CAM_RIGHT", 0), ("CAM_UP", 1), ("CAM_FWD", 2)])
-def test_camera_moves_in_rotated_local_frame_and_parent(token, axis):
+@pytest.mark.parametrize("token,axis,sign", [
+    ("CAM_FWD", 0, 1), ("CAM_BACK", 0, -1), ("CAM_RIGHT", 1, 1),
+    ("CAM_LEFT", 1, -1), ("CAM_UP", 2, 1), ("CAM_DOWN", 2, -1),
+])
+@pytest.mark.parametrize("base_angles", [[0, 0, 0], [20, 30, 40]])
+def test_camera_moves_in_base_frame_through_rotated_parent(token, axis, sign, base_angles):
     sim = fake_sim(Rotation.from_euler("xyz", [25, 50, 75], degrees=True).as_matrix(),
                    Rotation.from_euler("xyz", [10, 20, 30], degrees=True).as_matrix())
     before = sim.data.cam_xpos[0].copy()
-    direction = displayed_camera_axes(sim.data.cam_xmat[0].reshape(3, 3), 180)[axis]
-    move_camera(sim, 0, token, 0.05, 10)
-    np.testing.assert_allclose(sim.data.cam_xpos[0] - before, direction * 0.05, atol=1e-12)
+    base = Rotation.from_euler("xyz", base_angles, degrees=True).as_matrix()
+    orientation = sim.data.cam_xmat[0].copy()
+    move_camera(sim, 0, token, 0.05, 10, base)
+    np.testing.assert_allclose(sim.data.cam_xpos[0] - before, sign * base[:, axis] * 0.05, atol=1e-12)
+    np.testing.assert_allclose(sim.data.cam_xmat[0], orientation, atol=1e-12)
 
 
-def test_camera_yaw_is_about_current_up_and_next_move_uses_new_frame():
-    sim = fake_sim()
+@pytest.mark.parametrize("token,sign", [("CAM_YAW_CW", 1), ("CAM_YAW_CCW", -1)])
+def test_camera_yaw_keeps_position_and_next_move_uses_base_frame(token, sign):
+    initial_rotation = Rotation.from_euler("xyz", [25, 50, 75], degrees=True).as_matrix()
+    sim = fake_sim(initial_rotation, Rotation.from_euler("x", 20, degrees=True).as_matrix())
+    base = Rotation.from_euler("xyz", [10, 30, 50], degrees=True).as_matrix()
     initial_pos = sim.data.cam_xpos[0].copy()
-    move_camera(sim, 0, "CAM_YAW_CW", 0.05, 90)
-    right, up, forward = displayed_camera_axes(sim.data.cam_xmat[0].reshape(3, 3), 180)
-    np.testing.assert_allclose(forward, [-1, 0, 0], atol=1e-12)
-    np.testing.assert_allclose(up, [0, 1, 0], atol=1e-12)
-    move_camera(sim, 0, "CAM_FWD", 0.05, 10)
-    np.testing.assert_allclose(sim.data.cam_xpos[0] - initial_pos, [-0.05, 0, 0], atol=1e-12)
+    move_camera(sim, 0, token, 0.05, 90, base)
+    expected = Rotation.from_rotvec(sign * base[:, 2] * np.pi / 2).as_matrix() @ initial_rotation
+    np.testing.assert_allclose(sim.data.cam_xmat[0].reshape(3, 3), expected, atol=1e-12)
+    np.testing.assert_allclose(sim.data.cam_xpos[0], initial_pos, atol=1e-12)
+    move_camera(sim, 0, "CAM_FWD", 0.05, 10, base)
+    np.testing.assert_allclose(sim.data.cam_xpos[0] - initial_pos, base[:, 0] * 0.05, atol=1e-12)
 
 
 @pytest.mark.parametrize("token,axis,sign", [
@@ -177,26 +186,31 @@ def test_camera_yaw_is_about_current_up_and_next_move_uses_new_frame():
     ("RT_PITCH_FWD", "y", -1), ("RT_PITCH_BACK", "y", 1),
     ("RT_YAW_CW", "z", 1), ("RT_YAW_CCW", "z", -1),
 ])
-def test_eef_uses_controlled_site_and_holds_tilt(cfg, token, axis, sign):
+@pytest.mark.parametrize("base_angles", [[0, 0, 0], [20, 30, 40]])
+def test_eef_uses_controlled_site_and_holds_tilt(cfg, token, axis, sign, base_angles):
     site_rotation = Rotation.from_euler("z", 90, degrees=True).as_matrix()
+    base = Rotation.from_euler("xyz", base_angles, degrees=True).as_matrix()
     controller = SimpleNamespace(use_delta=True)
     obs = {"robot0_eef_pos": np.array([0.1, 0.2, 1.0]), "robot0_eef_quat": [0, 0, 0, 1]}
-    sim = SimpleNamespace(model=SimpleNamespace(camera_name2id=lambda _: 0),
-                           data=SimpleNamespace(site_xmat=np.array([site_rotation.flatten()])))
+    sim = SimpleNamespace(model=SimpleNamespace(camera_name2id=lambda _: 0, body_name2id=lambda _: 0),
+                          data=SimpleNamespace(site_xmat=np.array([site_rotation.flatten()]),
+                                               body_xmat=np.array([base.flatten()])))
     actions = []
     def step(action):
         actions.append(action.copy())
         obs["robot0_eef_pos"] = action[:3].copy()
         sim.data.site_xmat[0] = Rotation.from_rotvec(action[3:6]).as_matrix().flatten()
         return obs, 0, False, {}
-    env = SimpleNamespace(sim=sim, robots=[SimpleNamespace(controller=controller, eef_site_id=0)],
+    env = SimpleNamespace(sim=sim, robots=[SimpleNamespace(controller=controller, eef_site_id=0,
+                          robot_model=SimpleNamespace(root_body="robot0_base"))],
                           step=step, check_success=lambda: False)
     executor = LiberoAtomicController(env, cfg, obs)
     np.testing.assert_allclose(executor.target_rotation, site_rotation)
     executor.execute(token, obs)
-    target = Rotation.from_euler(axis, sign * cfg["semantic_eef_action"]["rotation_step_deg"], degrees=True).as_matrix() @ site_rotation
+    delta = Rotation.from_euler(axis, sign * cfg["semantic_eef_action"]["rotation_step_deg"], degrees=True).as_matrix()
+    target = base @ delta @ base.T @ site_rotation
     np.testing.assert_allclose(executor.target_rotation, target, atol=1e-12)
-    expected_position = obs["robot0_eef_pos"] + (target @ site_rotation.T)[:, 1] * cfg["semantic_eef_action"]["step_m"]
+    expected_position = obs["robot0_eef_pos"] + base[:, 1] * cfg["semantic_eef_action"]["step_m"]
     executor.execute("MV_RIGHT", obs)
     np.testing.assert_allclose(Rotation.from_rotvec(actions[-1][3:6]).as_matrix(), target, atol=1e-12)
     np.testing.assert_allclose(actions[-1][:3], expected_position, atol=1e-12)
@@ -205,8 +219,10 @@ def test_eef_uses_controlled_site_and_holds_tilt(cfg, token, axis, sign):
 
 
 @pytest.mark.parametrize("yaw,sign", [("RT_YAW_CW", 1), ("RT_YAW_CCW", -1)])
-def test_wrist_frame_turns_translation_and_subsequent_rotation(cfg, yaw, sign):
+@pytest.mark.parametrize("base_angles", [[0, 0, 0], [20, 30, 40]])
+def test_wrist_turns_leave_all_translation_and_rotation_axes_fixed_to_base(cfg, yaw, sign, base_angles):
     reference = Rotation.from_euler("xyz", [12, 25, 40], degrees=True).as_matrix()
+    base = Rotation.from_euler("xyz", base_angles, degrees=True).as_matrix()
     site = np.array([reference.flatten()])
     obs = {"robot0_eef_pos": np.array([0.1, 0.2, 1.0])}
 
@@ -216,28 +232,29 @@ def test_wrist_frame_turns_translation_and_subsequent_rotation(cfg, yaw, sign):
         return obs, 0, False, {}
 
     env = SimpleNamespace(
-        sim=SimpleNamespace(model=SimpleNamespace(camera_name2id=lambda _: 0),
-                            data=SimpleNamespace(site_xmat=site)),
-        robots=[SimpleNamespace(controller=SimpleNamespace(use_delta=True), eef_site_id=0)],
+        sim=SimpleNamespace(model=SimpleNamespace(camera_name2id=lambda _: 0, body_name2id=lambda _: 0),
+                            data=SimpleNamespace(site_xmat=site, body_xmat=np.array([base.flatten()]))),
+        robots=[SimpleNamespace(controller=SimpleNamespace(use_delta=True), eef_site_id=0,
+                                robot_model=SimpleNamespace(root_body="robot0_base"))],
         step=step, check_success=lambda: False,
     )
     executor = LiberoAtomicController(env, cfg, obs)
-    np.testing.assert_allclose(executor.eef_frame_world(), np.eye(3), atol=1e-12)
+    np.testing.assert_allclose(executor.base_frame_world(), base, atol=1e-12)
     for _ in range(6):
         executor.execute(yaw, obs)
-    yaw_frame = Rotation.from_euler("z", sign * 90, degrees=True).as_matrix()
-    np.testing.assert_allclose(executor.eef_frame_world(), yaw_frame, atol=1e-12)
-    before = obs["robot0_eef_pos"].copy()
-    executor.execute("MV_FWD", obs)
-    np.testing.assert_allclose(obs["robot0_eef_pos"] - before, [0, sign * 0.02, 0], atol=1e-12)
+    yaw_rotation = Rotation.from_rotvec(base[:, 2] * sign * np.pi / 2).as_matrix() @ reference
+    np.testing.assert_allclose(executor.target_rotation, yaw_rotation, atol=1e-12)
+    np.testing.assert_allclose(executor.base_frame_world(), base, atol=1e-12)
 
-    # Pitch must follow the already-turned wrist; world-axis premultiplication fails here.
+    # Pitch stays around base RIGHT after yaw; rotation composition order matters.
     executor.execute("RT_PITCH_FWD", obs)
-    frame = yaw_frame @ Rotation.from_euler("y", -15, degrees=True).as_matrix()
-    np.testing.assert_allclose(executor.eef_frame_world(), frame, atol=1e-12)
-    before = obs["robot0_eef_pos"].copy()
-    executor.execute("MV_UP", obs)
-    np.testing.assert_allclose(obs["robot0_eef_pos"] - before, frame[:, 2] * 0.02, atol=1e-12)
+    expected_rotation = Rotation.from_rotvec(base[:, 1] * np.deg2rad(-15)).as_matrix() @ yaw_rotation
+    np.testing.assert_allclose(executor.target_rotation, expected_rotation, atol=1e-12)
+    for token, axis, direction in zip(MOVE_ATOMS, (0, 0, 1, 1, 2, 2), (1, -1, -1, 1, 1, -1)):
+        before = obs["robot0_eef_pos"].copy()
+        executor.execute(token, obs)
+        np.testing.assert_allclose(obs["robot0_eef_pos"] - before, base[:, axis] * direction * 0.02, atol=1e-12)
+        np.testing.assert_allclose(executor.target_rotation, expected_rotation, atol=1e-12)
 
 
 @pytest.mark.parametrize("model", ["deepseek-flash", "kimi-k3"])

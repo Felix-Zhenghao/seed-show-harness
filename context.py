@@ -66,9 +66,9 @@ def create_context() -> dict:
             },
         },
         "semantic_eef_action": {
-            "step_m": 0.02,  # Wrist-attached axes; at reset FWD/RIGHT/UP align with world +X/+Y/+Z.
+            "step_m": 0.02,  # Robot base axes: FWD/RIGHT/UP = base +X/+Y/+Z.
             "rotation_enabled": True,
-            "rotation_step_deg": 15,  # Wrist-attached rotations about the TCP.
+            "rotation_step_deg": 15,  # Base-fixed rotation axes through the TCP.
             # Inclusive bounds for model overrides only; omitted/null sizes use the defaults.
             "min_distance_m": 0.0001,
             "max_distance_m": 1.0,
@@ -77,7 +77,7 @@ def create_context() -> dict:
             "sim_steps": 10,  # Hold each Cartesian target for this many control steps.
             "gripper_steps": 15,
             "camera_enabled": True,
-            "camera_step_m": 0.1,  # Along the current displayed camera axes.
+            "camera_step_m": 0.1,  # Along the same robot base axes as MV_*.
             "camera_yaw_step_deg": 10,
         },
         "harness": {
@@ -160,7 +160,7 @@ def observe_context(
         "proprioception": read_proprioception(observation),
         "table_height_m": float(executor.env.env.workspace_offset[2]),
         "camera_frames": executor.camera_frames(),
-        "eef_frame_world": executor.eef_frame_world().tolist(),  # Columns: FWD, RIGHT, UP.
+        "base_frame_world": executor.base_frame_world().tolist(),  # Columns: FWD, RIGHT, UP.
         "recovery": recovery,
         "allowed_tokens": (
             CONTROLLER_ATOMS

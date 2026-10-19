@@ -23,7 +23,7 @@ def world():
         gripper=-1,
         env=SimpleNamespace(env=SimpleNamespace(workspace_offset=[0, 0, 0.8])),
         camera_frames=lambda: {"agentview": {"rotation": np.eye(3), "image_rotation": 180}},
-        eef_frame_world=lambda: np.eye(3),
+        base_frame_world=lambda: np.eye(3),
     )
     return dict(executor=executor, observation=observation, client=None, task="grasp cup")
 
@@ -52,7 +52,7 @@ def test_live_fields_refresh_without_running_plugin_code(world):
         "gripper_width_m": 0.06, "joint_pos": list(range(7)),
     }
     assert first["table_height_m"] == 0.8
-    assert first["eef_frame_world"] == np.eye(3).tolist()
+    assert first["base_frame_world"] == np.eye(3).tolist()
     assert first["affordance"] is None and first["plugin_state"] == {}
     assert first["object_notes"] is settings["object_notes"]
     assert "CAM_UP" in first["allowed_tokens"]

@@ -216,6 +216,7 @@ def fake_env(gain=1.0):
     obs["robot0_eef_pos"] = np.array([0.1, 0.2, 0.82])
     reference = Rotation.from_euler("xyz", [15, 25, 35], degrees=True).as_matrix()
     data = SimpleNamespace(site_xmat=np.array([reference.flatten()]),
+                           body_xmat=np.array([np.eye(3).flatten()]),
                            cam_xpos=np.zeros((2, 3)), cam_xmat=np.tile(np.eye(3).flatten(), (2, 1)))
     commands = []
 
@@ -231,9 +232,11 @@ def fake_env(gain=1.0):
         return obs, 0, False, {}
 
     env = SimpleNamespace(
-        sim=SimpleNamespace(model=SimpleNamespace(camera_name2id=lambda name: int(name != "agentview")),
+        sim=SimpleNamespace(model=SimpleNamespace(camera_name2id=lambda name: int(name != "agentview"),
+                                                 body_name2id=lambda _: 0),
                             data=data),
-        robots=[SimpleNamespace(controller=SimpleNamespace(use_delta=True), eef_site_id=0)],
+        robots=[SimpleNamespace(controller=SimpleNamespace(use_delta=True), eef_site_id=0,
+                                robot_model=SimpleNamespace(root_body="robot0_base"))],
         env=SimpleNamespace(workspace_offset=[0, 0, 0.8]), step=step,
         check_success=lambda: False, close=lambda: None,
     )
@@ -245,25 +248,27 @@ def fake_env(gain=1.0):
     ("RT_PITCH_FWD", "y", -1), ("RT_PITCH_BACK", "y", 1),
     ("RT_YAW_CW", "z", 1), ("RT_YAW_CCW", "z", -1),
 ])
-def test_executor_overrides_follow_current_wrist_axes_and_do_not_latch(token, axis, sign):
+def test_executor_overrides_follow_base_axes_and_do_not_latch(token, axis, sign):
     cfg = create_context()
     cfg["semantic_eef_action"]["sim_steps"] = 1
     env, obs, commands = fake_env()
     executor = LiberoAtomicController(env, cfg, obs)
+    reference = executor.target_rotation.copy()
     obs, _, _ = executor.execute("RT_YAW_CW", obs, angle_deg=90)
     turn = Rotation.from_euler("z", 90, degrees=True).as_matrix()
     obs, _, _ = executor.execute(token, obs, angle_deg=3)
-    frame = turn @ Rotation.from_euler(axis, sign * 3, degrees=True).as_matrix()
-    np.testing.assert_allclose(executor.eef_frame_world(), frame, atol=1e-12)
+    rotation = Rotation.from_euler(axis, sign * 3, degrees=True).as_matrix() @ turn @ reference
+    np.testing.assert_allclose(executor.target_rotation, rotation, atol=1e-12)
     before = obs["robot0_eef_pos"].copy()
     obs, _, _ = executor.execute("MV_RIGHT", obs, step_m=0.008)
-    np.testing.assert_allclose(obs["robot0_eef_pos"] - before, frame[:, 1] * 0.008, atol=1e-12)
+    np.testing.assert_allclose(obs["robot0_eef_pos"] - before, [0, 0.008, 0], atol=1e-12)
     before = obs["robot0_eef_pos"].copy()
     obs, _, _ = executor.execute("MV_LEFT", obs)
-    np.testing.assert_allclose(obs["robot0_eef_pos"] - before, -frame[:, 1] * 0.02, atol=1e-12)
+    np.testing.assert_allclose(obs["robot0_eef_pos"] - before, [0, -0.02, 0], atol=1e-12)
     obs, _, _ = executor.execute(token, obs)
-    frame = frame @ Rotation.from_euler(axis, sign * 15, degrees=True).as_matrix()
-    np.testing.assert_allclose(executor.eef_frame_world(), frame, atol=1e-12)
+    rotation = Rotation.from_euler(axis, sign * 15, degrees=True).as_matrix() @ rotation
+    np.testing.assert_allclose(executor.target_rotation, rotation, atol=1e-12)
+    np.testing.assert_allclose(executor.base_frame_world(), np.eye(3), atol=1e-12)
     assert len(commands) == 5
     assert cfg["semantic_eef_action"]["rotation_step_deg"] == 15
 

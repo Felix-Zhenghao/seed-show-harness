@@ -19,7 +19,7 @@ def make_context(settings=None, **fields):
         gripper=-1,
         env=SimpleNamespace(env=SimpleNamespace(workspace_offset=[0, 0, 0.8])),
         camera_frames=lambda: {"agentview": {"rotation": np.eye(3), "image_rotation": 180}},
-        eef_frame_world=lambda: np.eye(3),
+        base_frame_world=lambda: np.eye(3),
     )
     context = observe_context(
         create_context() if settings is None else settings,

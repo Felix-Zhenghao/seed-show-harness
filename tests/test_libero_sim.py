@@ -148,7 +148,7 @@ from context import create_context
 from core.sim.libero_config import select_tasks
 from core.sim.libero_tasks import configure_imports, create_env, task_assets, language
 from core.sim.libero_runner import observation_images
-from interpreters.libero_atomic_controller import LiberoAtomicController, displayed_camera_axes
+from interpreters.libero_atomic_controller import LiberoAtomicController
 
 variant, directory, root = sys.argv[1:]
 cfg = create_context()
@@ -187,7 +187,7 @@ try:
         assert Rotation.from_matrix(ctrl.target_rotation @ orientation.T).magnitude() < 1e-6
         for token, axis, sign in (("RT_ROLL_RIGHT", 0, -1), ("RT_PITCH_FWD", 1, -1), ("RT_YAW_CCW", 2, -1)):
             before = env.sim.data.site_xmat[env.robots[0].eef_site_id].reshape(3, 3).copy()
-            frame = ctrl.eef_frame_world()
+            frame = ctrl.base_frame_world()
             obs, _, _ = ctrl.execute(token, obs)
             after = env.sim.data.site_xmat[env.robots[0].eef_site_id].reshape(3, 3).copy()
             delta = frame.T @ Rotation.from_matrix(after @ before.T).as_rotvec()
@@ -195,17 +195,17 @@ try:
             assert np.linalg.norm(np.delete(delta, axis)) < 0.1, (token, delta)
         held = ctrl.target_rotation.copy()
         before = obs["robot0_eef_pos"].copy()
-        direction = ctrl.eef_frame_world()[:, 2]
+        direction = ctrl.base_frame_world()[:, 2]
         obs, _, _ = ctrl.execute("MV_UP", obs)
         translation = obs["robot0_eef_pos"] - before
         assert 0.01 < translation @ direction < 0.03, translation
         assert np.linalg.norm(translation - (translation @ direction) * direction) < 0.005, translation
         actual = env.sim.data.site_xmat[env.robots[0].eef_site_id].reshape(3, 3)
         assert Rotation.from_matrix(held @ actual.T).magnitude() < 0.06
-        # A precise adjustment and the next default-sized action use the measured wrist frame.
+        # A precise adjustment and the next default-sized action use the robot base frame.
         for distance in (0.008, None):
             before = obs["robot0_eef_pos"].copy()
-            direction = ctrl.eef_frame_world()[:, 1]
+            direction = ctrl.base_frame_world()[:, 1]
             obs, _, _ = ctrl.execute("MV_RIGHT", obs, step_m=distance)
             expected = cfg["semantic_eef_action"]["step_m"] if distance is None else distance
             np.testing.assert_allclose(ctrl.target_position - before, direction * expected, atol=1e-10)
@@ -213,7 +213,7 @@ try:
             assert 0.4 * expected < achieved < 1.5 * expected, (distance, achieved)
         for angle in (3, None):
             before = env.sim.data.site_xmat[env.robots[0].eef_site_id].reshape(3, 3).copy()
-            frame = ctrl.eef_frame_world()
+            frame = ctrl.base_frame_world()
             obs, _, _ = ctrl.execute("RT_YAW_CW", obs, angle_deg=angle)
             expected = cfg["semantic_eef_action"]["rotation_step_deg"] if angle is None else angle
             target = frame.T @ Rotation.from_matrix(ctrl.target_rotation @ before.T).as_rotvec()
@@ -225,7 +225,7 @@ try:
     pixels = obs["agentview_image"].copy()
     obs, commands, _ = ctrl.execute("CAM_YAW_CW", obs)
     idx = ctrl.camera_id
-    forward = displayed_camera_axes(env.sim.data.cam_xmat[idx].reshape(3,3), 180)[2]
+    forward = ctrl.base_frame_world()[:, 0]
     position = env.sim.data.cam_xpos[idx].copy()
     obs, _, _ = ctrl.execute("CAM_FWD", obs)
     np.testing.assert_allclose(env.sim.data.cam_xpos[idx] - position, forward * cfg["semantic_eef_action"]["camera_step_m"], atol=1e-8)

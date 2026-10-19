@@ -1,7 +1,7 @@
 """Semantic actions for the single Franka Panda in LIBERO.
 
-EEF translations and rotations use the wrist-attached operational frame.
-Camera actions use the displayed camera frame.
+EEF translations, rotations, and camera actions all use robot base axes:
+FWD/RIGHT/UP are base +X/+Y/+Z, independent of wrist and camera orientation.
 Metric step sizes and optional rotation/camera actions are set in context.py.
 """
 
@@ -15,7 +15,7 @@ MOVE_ATOMS = (
     "MV_DOWN",
 )
 
-# End-effector rotations about wrist-attached axes through the TCP.
+# End-effector rotations about base-fixed axes through the TCP.
 RT_ATOMS = (
     "RT_ROLL_LEFT",
     "RT_ROLL_RIGHT",
@@ -25,7 +25,7 @@ RT_ATOMS = (
     "RT_YAW_CCW",
 )
 
-# External-camera active perception, in the current displayed camera frame.
+# External-camera active perception, in the robot base frame.
 CAMERA_ATOMS = (
     "CAM_UP",
     "CAM_DOWN",

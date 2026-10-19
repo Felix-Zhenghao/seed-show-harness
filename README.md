@@ -80,8 +80,8 @@ The shared opening lives in [plugins/base/prompt.txt](plugins/base/prompt.txt).
 Its instruction section contains action tokens and movement/rotation sizes; its
 `[state]` section contains the task, intended grasping part, and subgoal. Its `build.py`
 fills those values directly from context. The instructions come first in planner
-and controller prompts. EEF actions follow the wrist's current
-orientation; camera actions follow Agentview's current displayed frame.
+and controller prompts. All EEF and camera actions use the robot base frame:
+FWD/RIGHT/UP are base +X/+Y/+Z regardless of wrist or camera orientation.
 
 Prompts place reusable instructions before task/subgoal data and per-step feedback,
 then append the current Agentview and Wristview images in that order. The base,
@@ -157,3 +157,16 @@ LIBERO_SIM_TESTS=1 third_party/LIBERO-plus/.venv/bin/python -m pytest -q seed_ha
 
 These integration checks exercise real physics, camera actions, perturbations,
 affordance markers, automatic release, and logging using scripted model replies.
+
+Inspect all 20 base-frame motion actions in
+[`illustrate_semantic_action/index.html`](illustrate_semantic_action/index.html).
+Each action has before/after PNGs containing Agentview and Wristview, from both an
+initial orientation and a turned/tilted wrist with a yawed external camera.
+Illustration steps are 10 cm for translations and 30 degrees for rotations, for both
+the gripper and camera; these capture settings leave the runtime defaults unchanged.
+`manifest.json` records commanded and measured motion in base coordinates.
+Regenerate the captures from this directory, without model calls:
+
+```bash
+../third_party/LIBERO-plus/.venv/bin/python -m scripts.illustrate_semantic_actions
+```

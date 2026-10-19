@@ -138,32 +138,33 @@ to both model roles. The launcher and all feature switches use the object in `co
 
 | Tokens | Meaning |
 | --- | --- |
-| `MV_FWD/BACK`, `MV_RIGHT/LEFT`, `MV_UP/DOWN` | Translations along the current wrist-attached FWD/RIGHT/UP axes and their opposites. |
-| `RT_ROLL_LEFT/RIGHT` | Positive/negative rotation about the current FWD axis through the TCP. |
-| `RT_PITCH_FWD/BACK` | Negative/positive rotation about the current RIGHT axis through the TCP. |
-| `RT_YAW_CW/CCW` | Positive/negative rotation about the current UP axis through the TCP. CW/CCW is viewed along UP, from the fingertip side toward the wrist at the reference pose. |
-| `CAM_LEFT/RIGHT`, `CAM_UP/DOWN` | Move along the current external camera's displayed horizontal/vertical axes. |
-| `CAM_FWD/BACK` | Move along the current camera optical direction or its opposite. |
-| `CAM_YAW_CW/CCW` | Turn the view toward displayed right/left about its current up axis. |
+| `MV_FWD/BACK`, `MV_RIGHT/LEFT`, `MV_UP/DOWN` | Translations along robot base +X/-X, +Y/-Y, +Z/-Z. |
+| `RT_ROLL_LEFT/RIGHT` | Positive/negative rotation about base FWD (+X) through the TCP. |
+| `RT_PITCH_FWD/BACK` | Negative/positive rotation about base RIGHT (+Y) through the TCP. |
+| `RT_YAW_CW/CCW` | Positive/negative rotation about base UP (+Z) through the TCP. |
+| `CAM_RIGHT/LEFT`, `CAM_UP/DOWN` | Translate the external camera along base +Y/-Y, +Z/-Z. |
+| `CAM_FWD/BACK` | Translate the external camera along base +X/-X. |
+| `CAM_YAW_CW/CCW` | Rotate the camera in place positively/negatively about base UP (+Z). |
 
-Camera directions account for image rotation and the camera parent body's world pose.
-After a yaw, subsequent translations use the new camera frame. Camera actions refresh
-the image without advancing physics. The base prompt explains the wrist and camera
-frames in prose, with examples of how movement appears in each view.
+All three action families share the robot base frame. FWD/RIGHT/UP are the +X/+Y/+Z
+axes of `env.robots[0].robot_model.root_body`, read from the simulator's body rotation
+and exposed as `context["base_frame_world"]` (world-space columns). This replaces the
+former wrist-attached `eef_frame_world` field. The base axes align with world axes in
+normal LIBERO scenes, but a rotated base is handled explicitly. Wrist orientation,
+camera orientation, and displayed image rotation never redefine action directions.
+For example, after a 90-degree wrist or camera yaw, both `MV_FWD` and `CAM_FWD` still
+translate along base +X. After tilting the wrist, `MV_UP` remains upward for an upright
+base.
 
-The operational frame is calibrated at reset: FWD/RIGHT/UP initially align with world
-+X/+Y/+Z. Its current rotation is `current_tcp_rotation @ reset_tcp_rotation.T`, measured
-from the simulator and exposed as `context["eef_frame_world"]`. These axes turn with the
-wrist: after a nominal 90-degree `RT_YAW_CCW` turn, FWD follows the reference LEFT direction.
-At the default 15-degree setting, that means six commands. Actual rotation can differ
-under contact or joint limits; the interpreter uses the measured wrist orientation.
-
-The reference is the complete reset orientation, including yaw. Fingertips pointing
-toward the table alone does not specify yaw. All rotation signs follow the right-hand
-rule about the named operational axis. After a tilt, MV_UP need not be world-vertical.
-The [base plugin](../plugins/base/prompt.txt) explains this convention and begins both
-planner and controller prompts, combining the former action, task, stage, and basic
-visual-guidance plugins.
+Rotation signs preserve the existing EEF convention and follow the right-hand rule
+about the named base axis. Yaw CW/CCW is viewed looking along base UP, from below
+toward above; CW is positive about +Z. EEF rotations pivot at the current TCP, and
+camera yaw pivots at the current camera position, not at the base origin.
+Camera targets are converted through the camera parent's world pose, including for
+non-world parents. Camera actions refresh images without advancing physics.
+The [base plugin](../plugins/base/prompt.txt) explains these conventions and begins
+both planner and controller prompts. Variable-step and action-chunk instructions
+also use the same base axes.
 
 EEF commands target the gripper **site** controlled by OSC, not the differently oriented
 hand-body quaternion in LIBERO observations. Each semantic motion sets one absolute

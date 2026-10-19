@@ -78,7 +78,7 @@ inputs in `observe_context()`. Add a field there and read it directly in a build
 Plugin-specific API/model calls and parsing belong in that plugin's `build.py`.
 
 Inputs include the current `task`, `subgoal`, `recent_moves`, `proprioception`,
-`camera_frames`, `eef_frame_world`, images, `env`, `executor`, and `client`. Every builder in a composition
+`camera_frames`, `base_frame_world`, images, `env`, `executor`, and `client`. Every builder in a composition
 receives the same dictionary, so earlier builders can write results for later builders.
 Custom fields also survive model transport and retries.
 

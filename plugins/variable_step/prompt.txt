@@ -1,4 +1,4 @@
-Coarse EEF steps move ~${coarse_cm} cm for MV_UP, above ${high_cm} cm from the table, or when the target is outside the wrist view. Otherwise use fine steps. All translations follow the current wrist axes.
+Coarse EEF steps move ~${coarse_cm} cm for MV_UP, above ${high_cm} cm from the table, or when the target is outside the wrist view. Otherwise use fine steps. All translations follow the fixed robot base axes.
 ${hint}
 
 [holding]

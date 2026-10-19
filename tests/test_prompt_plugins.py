@@ -90,7 +90,10 @@ def test_base_opens_controller_planner_and_token_retry(context):
     assert token_prompt({**context, "previous_prompt": prompt}).startswith(opening)
     assert prompt.count("Your current task:") == prompt.count("Subgoal information:") == 1
     assert "15-degree commands require six steps" in opening
-    assert "viewed along operational UP" in opening and "including its initial yaw" in opening
+    assert "All MV_*, RT_*, and CAM_* actions use the robot base frame" in opening
+    assert "MV_FWD still moves along base +X" in opening
+    assert "After any camera yaw, CAM_FWD still moves along base +X" in opening
+    assert "looking along base UP" in opening
     assert "CAM_MV_" not in opening and "CAM_RT_" not in opening
 
 

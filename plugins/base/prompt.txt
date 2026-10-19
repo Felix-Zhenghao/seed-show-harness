@@ -12,23 +12,21 @@ Movement tokens fall into two categories:
 
 1. End-effector motion: MV_* and RT_*
 
-MV_* translates the gripper, and RT_* rotates it about its center. Both use an operational frame attached to the wrist. At reset, FWD, RIGHT, and UP align with world +X, +Y, and +Z; BACK, LEFT, and DOWN are their opposites. These directions then rotate with the wrist. Imagine yourself attached to the wrist and guiding it toward the target. Translations hold its orientation; after tilting, MV_UP may no longer be vertically upward.
+MV_* translates the gripper, and RT_* rotates it about its center (TCP). All MV_*, RT_*, and CAM_* actions use the robot base frame. FWD, RIGHT, and UP mean the robot base's +X, +Y, and +Z axes; BACK, LEFT, and DOWN are their opposites. In the normal LIBERO scene these align with world +X, +Y, and +Z. Imagine your body anchored at the robot base while guiding your hand. The axes stay fixed to the base when the wrist or camera turns. Translations hold the gripper's orientation; MV_UP remains vertically upward for the normal upright base, even after tilting the wrist.
 
-For the following example, the reference pose means the complete gripper orientation at episode reset, including its initial yaw. In the normal reset pose, the fingertips point toward the table.
+For example, after a cumulative 90-degree RT_YAW_CCW turn, MV_FWD still moves along base +X, exactly as before the turn. A 90-degree turn is a total rotation, not a single token; for example, 15-degree commands require six steps. The wrist image changes with the gripper orientation, but the action's direction relative to the robot base stays the same.
 
-Starting from that pose, MV_FWD moves toward the default Agentview camera, so the gripper may appear larger. Now imagine a cumulative 90-degree RT_YAW_CCW turn from that reference, with no intervening roll or pitch. Yaw CW/CCW is viewed along operational UP, from the fingertip side toward the wrist. A 90-degree turn is a total rotation, not a single token; for example, 15-degree commands require six steps. FWD now follows the reference LEFT direction, so MV_FWD appears approximately image-right in the unchanged default Agentview. The wrist camera turns with the gripper, so stationary objects still appear to move opposite the wrist's translation in its own view.
+Rotation signs follow the right-hand rule: ROLL_LEFT/RIGHT rotates positively/negatively about base FWD (+X), PITCH_FWD/BACK negatively/positively about base RIGHT (+Y), and YAW_CW/CCW positively/negatively about base UP (+Z). Yaw CW/CCW is viewed looking along base UP, from below toward above. Each rotation axis passes through the current TCP; rotations change orientation without orbiting the robot base. After any wrist turn, the next rotation still uses these same base axes.
 
-Rotation signs follow the right-hand rule: ROLL_LEFT/RIGHT rotates positively/negatively about FWD, PITCH_FWD/BACK negatively/positively about RIGHT, and YAW_CW/CCW positively/negatively about UP. These axes follow the current wrist orientation.
-
-First reason about the ideal gripper movement from the images and task. Then predict how a wrist-frame action will appear in both views and choose the token that achieves that movement. Camera movements and wrist rotations change these image effects, so update your interpretation from the current observations.
+First reason about the ideal gripper movement relative to the robot base, using the images and task. Then choose the token for that base direction or rotation. Image-right and image-up depend on the viewpoint. Camera movements and wrist rotations change how base-frame actions appear in each image, so use the current observations to relate the images to the base axes.
 
 2. Active perception: CAM_*
 
 CAM_* translates or rotates Agentview. Use it to inspect gripper-object contact, obtain a closer view for precise manipulation such as insertion, or see a target obscured by the gripper or another object.
 
-These tokens use the current camera frame. Imagine yourself attached to the camera and driving it. CAM_RIGHT/LEFT and CAM_UP/DOWN move along its displayed horizontal and vertical axes; CAM_FWD/BACK moves along or opposite its viewing direction. CAM_YAW_CW/CCW turns the view right/left about its current up axis. Direct camera pitch and roll are unavailable, so combine translation and yaw to find a useful viewpoint.
+CAM_FWD/BACK moves the external camera along base +X/-X, CAM_RIGHT/LEFT along base +Y/-Y, and CAM_UP/DOWN along base +Z/-Z. Camera translations preserve its orientation. CAM_YAW_CW/CCW rotates the camera in place positively/negatively about base UP (+Z), with the same signs as RT_YAW_CW/CCW. The yaw axis passes through the camera, so yaw does not orbit the robot base or target. Direct camera pitch and roll are unavailable.
 
-For example, to inspect an object's original camera-right side, move CAM_RIGHT, advance with CAM_FWD as needed, and use CAM_YAW_CCW to face the object again. Each token applies one configured step; observe and repeat as needed. After turning, CAM_FWD approaches along the new viewing direction. First decide which view would help, then choose camera actions that produce it. Camera actions leave the arm and objects unchanged.
+For example, CAM_RIGHT shifts the camera toward the robot base's +Y side; whether that appears right or left in the image depends on the current view. After any camera yaw, CAM_FWD still moves along base +X. To get closer to an object, choose the base-axis translations that reduce the camera-to-object separation. Each token applies one configured step; observe and repeat as needed. First decide which view would help, then choose camera actions that produce it. Camera actions leave the arm and objects unchanged.
 
 Some useful tips:
 - Check both camera views when both are supplied.
