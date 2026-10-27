@@ -10,7 +10,8 @@ configs/*.env
 .env.*
 
 # Generated runs, Python/tool caches, and editor metadata.
-/runs/
+/runs/*
+!/runs/render_trajectory.py
 __pycache__/
 *.py[cod]
 .pytest_cache/

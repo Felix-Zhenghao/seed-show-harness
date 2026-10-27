@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "seed-robot-harness"
+version = "0.1.0"
+description = "Typed context-oriented robot control with original LIBERO"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.23,<2", "scipy>=1.10", "Pillow>=10.4", "requests>=2.32",
+                "PyYAML>=6", "jsonschema>=4.23"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.9", "mypy>=1.15", "types-requests", "types-PyYAML", "types-jsonschema"]
+
+[project.scripts]
+robot-harness = "harness.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["harness*", "plugins*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.txt", "*.mjs"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["simulator: requires original LIBERO and a working renderer", "live: makes paid DeepSeek requests"]
+addopts = "-m 'not live and not simulator'"
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.mypy]
+python_version = "3.10"
+check_untyped_defs = true
+disallow_untyped_defs = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+files = ["harness", "plugins"]

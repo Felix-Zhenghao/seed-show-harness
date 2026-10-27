@@ -1,2 +1,0 @@
-Critical output format: return exactly one token from this list and nothing else. Do not include thought, reasoning, markdown, punctuation, or prose.
-${allowed_tokens}

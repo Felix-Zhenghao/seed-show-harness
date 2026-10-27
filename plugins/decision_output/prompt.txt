@@ -1,9 +1,0 @@
-Think one visual sentence, then commit.
-Choose exactly one action:
-${allowed_tokens}
-Return JSON only: {"decision":"ONE_ACTION","reasoning":"one visual sentence"}
-Usually omit step sizes. Specify one only when the current default is unsuitable, such as during precise alignment.
-For MV_* only, you may add "distance_m" in meters within ${distance_bounds}. For RT_* only, you may add "angle_deg" in degrees within ${angle_bounds}. Bounds are inclusive. Magnitudes must be finite and positive; the action token determines direction. Other actions do not accept size overrides.
-Omitted fields or JSON null use the existing default in the current configuration, including fine/coarse translation selection. A size override applies to this decision only: choose a single action and omit PLAN when specifying a size.
-Keep "reasoning" about the semantic action choice. Include a separate "step_size_reasoning" only when providing a non-null size override, briefly explaining why the default is unsuitable.
-Example when a smaller movement is necessary: {"decision":"MV_RIGHT","distance_m":0.008,"reasoning":"The gripper is just left of the target.","step_size_reasoning":"Use a smaller step for final alignment."}

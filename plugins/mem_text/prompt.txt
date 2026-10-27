@@ -1,9 +1,0 @@
-- If recent moves show GRASP(empty), do not GRASP in place again; prioritize MV_UP, MV_BACK, MV_DOWN, or MV_FWD
-- NEVER OSCILLATE: Do NOT choose the opposite of the newest recent move (Pairs: MV_LEFT/MV_RIGHT, MV_FWD/MV_BACK)
-- When opposite directions appear in recent moves, prioritize MV_DOWN or MV_UP
-
-[state]
-Recent moves, newest first: ${moves}
-
-[empty]
-none

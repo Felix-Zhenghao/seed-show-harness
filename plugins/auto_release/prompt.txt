@@ -1,1 +1,1 @@
-Empty closed gripper automatically reopened; realign the target and confirm grasp depth.
+Small gripper width after a settled grasp suggests that no object is held. The gripper was automatically reopened. Use the observations captured after this intervention to realign the target and check grasp depth before trying again.

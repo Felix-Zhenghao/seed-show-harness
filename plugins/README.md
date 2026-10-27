@@ -1,113 +1,133 @@
-# Standalone plugins
+# Robot harness plugins
 
-Each plugin owns its wording and implementation:
+These plugins run through the shared controller in `controller.py`. The `subgoal`
+function invokes a DeepSeek Harness planning agent; `affordance` invokes a
+DeepSeek Flash VLM with all current camera views and annotates one requested view.
 
-```text
-plugins/<name>/
-  build.py     # build(context), API/model calls, parsing, and runtime behavior
-  prompt.txt   # Wording, when the plugin produces text
-```
+## Three independent declarations
 
-Every plugin has a normal `build(context)` function. It checks its switch first,
-loads its own text, fills the blanks, and returns finished text or `PromptContent`.
-An empty string contributes nothing. An image-only plugin can omit `prompt.txt`.
+| Property | Values | Meaning |
+| --- | --- | --- |
+| Activation | every_decision, model_call, conditional | When a handler runs. |
+| Result lifetime | decision, until_next_call | How long its latest result is reusable. |
+| Dependencies | Tool names with argument builders | Information needed before execution. |
 
-[composer.py](../core/prompting/composer.py) imports builders directly and calls them
-in an explicit order. `compose(context, *builders)` only calls those functions and
-joins their completed results. Ordinary Python imports resolve plugins.
+The controller is instantiated per episode. There is one current result per plugin
+name, not a cache per argument combination. A valid explicit invocation always runs
+again; only prerequisite resolution reuses an existing result.
 
-`base.build_instructions` comes first in planner and controller prompts, including controller retries.
-It owns the camera introduction, action explanations,
-grasp/release/completion rules, task, and subgoal. These replace the former `world_axes`,
-`rotation_actions`, `camera_actions`, `direction`, `gripper`, `completion`, `task`, and
-`stage` plugins. Edit [base/prompt.txt](base/prompt.txt) for wording and
-[base/build.py](base/build.py) for its substitutions. Enable it with `plugins.base`;
-rotation and camera actions are enabled in `semantic_eef_action`.
-The base text has an instruction section for action tokens and movement/rotation sizes,
-followed by a `[state]` section for task, affordance, and subgoal data. `build(context)`
-returns both sections; `build_instructions(context)` and `build_state(context)` let
-the composer place other reusable instructions between them. Substitution remains
-inside the plugin and never reinterprets inserted text.
+An until_next_call result survives decision boundaries and dependency updates. Its
+next invocation retires it after argument validation, before running prerequisites
+or the handler. Failed replacement leaves no active result. The previous data is
+available to the handler as historical context. It never leaks into another episode.
 
-Keep reusable instructions before changing values to improve provider prefix-cache
-reuse. The controller groups base, extra-context, wrist, action-plan, coarse-step, and memory
-rules before task/stage data, measured state, history, and feedback. The planner puts
-its output instructions before task/stage data too. `controller_prompts(context)`
-builds the shared instructions and live state once, then returns the JSON decision
-and token fallback. JSON output and step-size rules go between shared instructions
-and live state, making them part of the reusable prefix. The token fallback uses the
-same completed sections without JSON-only rules, then appends its token contract.
-Retries never repeat plugin side effects. Model transport appends current camera
-images after the prompt, preserving Agentview/Wristview order and any image positions
-inside plugin content.
-Do not memoize live builder results: affordance markers and observations must refresh.
+A decision result is tied to the decision, observation revision, and dependency
+versions that produced it. Updating a dependency invalidates decision-scoped consumers
+transitively. Propagation stops at an unchanged until_next_call result. This preserves
+the literal persistent lifetime rather than introducing a hidden refresh rule.
 
-## Add a plugin
+## Ownership and adding plugins
 
-1. Write `plugins/task_hint/prompt.txt`:
+- contracts.py defines the common interface and native function-tool declarations.
+- Each plugin's build.py owns its handler, description, input/output schemas, and
+  dependency argument mappings. Helper instructions live in prompt.txt.
+- registry.py selects the enabled pool. Adding a tool does not require changing the
+  central controller or repeating its definition in the base prompt.
+- controller.py validates and resolves the dependency graph, manages result lifetimes,
+  assembles context, and enforces the shared call budget.
 
-   ```text
-   Task reminder: ${task}
-   ```
+Each dependency edge maps the consumer's arguments and current context to the
+prerequisite's own argument schema. A mapping constructs arguments; it never invokes
+another plugin. Handlers receive resolved PluginResult values in dependency_results.
+They return structured data and optional context blocks instead of injecting them.
+Future tools may use masks, object identifiers, numbers, or other arguments; prompt
+strings and point coordinates belong only to the example tools.
 
-2. Write `plugins/task_hint/build.py`:
+Dependency edges connect model-call information tools. Automatic context builders
+and conditional interventions are scheduled separately, so resolving an information
+request cannot force an intervention. Unknown, disabled, duplicate, or cyclic
+dependencies are configuration errors. Shared prerequisites are evaluated once while
+their result remains valid.
 
-   ```python
-   from pathlib import Path
-   from string import Template
+## Decision sequence
 
-   def build(context):
-       if context["plugins"].get("task_hint") is not True:
-           return ""
-       text = Path(__file__).with_name("prompt.txt").read_text(encoding="utf-8")
-       return Template(text).substitute(task=context["task"]).strip()
-   ```
+1. Start with the latest observations, expire decision results, reset the call budget,
+   and include existing until_next_call results.
+2. Evaluate conditional hooks once in enabled-registry order. Record actual completed
+   interventions and refresh observations when a result reports observations_changed.
+3. Run every_decision builders against the resulting state. Present stable instructions,
+   the task, current subgoal, observations, robot pose, and previous actions with their
+   rationale. An active annotation replaces its matching observation image
+   in model input; originals and retired annotations are not replayed alongside it.
+4. Ask the model for one native tool call or one final atomic action and brief rationale.
+   For a call, resolve missing prerequisites, inject each result immediately, then run
+   the requested tool. No additional model turn is required between those executions.
+5. Return the requested call's native tool response and ask the model again. On a final
+   action, validate the existing two-field format and return it to the host for execution.
 
-3. Add `"task_hint": True` to `plugins` in [context.py](../context.py).
-4. Import `from plugins.task_hint import build as task_hint` in the composer and add
-   `task_hint.build` to the desired `compose(...)` call.
+The default permits unlimited tool calls; a per-decision budget can be configured. Reserve a slot for
+each explicit or prerequisite invocation before resolving its children. Invalid
+arguments, unknown tool names, and failed invocations consume their reserved slot;
+cached reads and automatic hooks do not. A parent whose prerequisite fails or cannot
+fit the remaining budget does not execute, even though its attempt was reserved.
+Successful prerequisites remain stored when a later dependent fails. Tools are
+disabled at zero. Malformed final responses are rejected without execution. Native
+tool calls take precedence over accompanying assistant text; an action is selected
+only from a response without tool calls.
 
-The example uses Python's `string.Template`; each builder can choose its own filling
-logic. `${slot}` inserts a value and `$$` writes a literal dollar sign. JSON braces
-need no escaping. Some bundled plugins keep named text sections in `prompt.txt` and
-read those sections locally in `build.py`.
+## Native tool calling and logging
 
-For a static prompt, the builder simply checks its switch and returns the file text.
-Call `task_hint.build(context)` directly to exercise the plugin on its own.
+The transport uses DeepSeek's documented
+[Responses API](https://api-docs.deepseek.com/zh-cn/api/create-response/).
+`tool_definitions` supplies the API's `tools` parameter with strict function schemas.
+The system prompt describes when to seek information and the final action format;
+it does not contain tool-call envelopes or a second copy of the tool catalog.
 
-## Share data through context
+`ModelReply` reads native `function_call` output items. The decision loop dispatches
+their validated arguments to the named plugin and returns `function_call_output`
+with the same provider-issued `call_id`. The original model output is preserved in
+that exchange. Text that resembles a tool call or logging event cannot invoke a tool.
+Strict JSON Schema constrains final actions as well as tool arguments; nonblank strings
+and two-element points are checked locally because DeepSeek does not support length
+constraints in strict schemas.
 
-[context.py](../context.py) lists constants in `create_context()` and live simulator
-inputs in `observe_context()`. Add a field there and read it directly in a builder.
-Plugin-specific API/model calls and parsing belong in that plugin's `build.py`.
+`PluginResult.data` holds structured values for dependencies and trajectory logs.
+`context_blocks` holds the plugin's model-facing explanation and images. The controller
+uses those blocks in its current context and native tool results, without serializing
+logging events, internal result versions, or bookkeeping into the prompt. Each model
+request is saved separately in full for inspection, along with the provider response.
 
-Inputs include the current `task`, `subgoal`, `recent_moves`, `proprioception`,
-`camera_frames`, `base_frame_world`, images, `env`, `executor`, and `client`. Every builder in a composition
-receives the same dictionary, so earlier builders can write results for later builders.
-Custom fields also survive model transport and retries.
+## Host responsibilities
 
-Persistent plugin state goes in `context["plugin_state"]["your_name"]`. Each episode
-starts with a fresh state dictionary; observation contexts share it within that episode.
-Keep mutable runtime state out of module globals and keep imports free of API/model calls.
+The host supplies plugin_context snapshots, render_template, JSON Schema validation,
+model/helper transport, image annotations, and robot access for conditional hooks.
+Only named template placeholders are substituted, so literal JSON examples survive.
+Information-tool contexts expose read-only observations/state, not robot actuation.
+The planning-agent adapter can inspect the supplied history path. Helper failures,
+including unlocalizable points, raise instead of fabricating valid structured output.
 
-Examples of plugin-owned behavior:
+Current-result slots are separate from the protocol transcript and trajectory history.
+Retiring a result removes its active context/annotation, not the historical evidence.
+Historical tool messages must not be labelled as current. Preserve the assistant's
+actual tool-call message and correlate its response with the same call ID. Automatic
+prerequisite results are controller context and trace events, never fabricated
+assistant calls or unmatched native tool responses.
 
-| Plugin | Implementation and shared results |
-| --- | --- |
-| `base` | Separates configured action rules from task/subgoal state; camera descriptions, frame explanations, and examples are written directly in `prompt.txt`. |
-| `affordance` | Selects a simulator part or falls back to VLM point/verify/track calls. Updates both image fields, writes `context["affordance"]`, and returns marker guidance. The simulator API and visual fallback live in the same `build.py`. |
-| `subgoal` | Builds planner instructions; `plan(context)` owns model calls, retries, parsing, and stage merging. It consumes `planner_prompt` and `fallback_stage`, and writes planner diagnostics. |
-| `wrist_visibility` | Builds the visibility instruction; `read_response(context)` writes `target_in_wrist`. |
-| `action_chunk` | Builds planning instructions, parses `chunk_plan`, and owns the queued moves in `plugin_state`. |
-| `variable_step` | Builds coarse-movement guidance; `step_m(context)` reads the measured height and wrist result. |
-| `recovery`, `auto_release` | Own grasp checks, reopening, and their prompt feedback. |
-| `mem_text` | Owns history retention and its prompt order. |
+`ContextUpdater` manages current results, observations, and completed action history.
+`PluginController` resolves dependencies and schedules automatic contributions;
+`DecisionLoop` constructs each model request from that current state. Automatic
+contributions do not produce plugin lifecycle log entries. Actual interventions are
+recorded as executed actions, and their resulting observations are captured before
+the next model call. A handled grasp failure is not released repeatedly.
 
-Runtime functions such as `plan`, `before_decision`, and `after_step` are plain functions
-in the same `build.py`. The runner calls them directly. Plugins exchange data through
-context and do not import one another.
+## Verification walkthroughs
 
-For images, return `PromptContent(("History:", PromptImage(image), "Continue."))` using
-[content.py](../core/prompting/content.py). Text and images retain their order through
-composition and retries. The shared content types only represent output; filling and
-image selection remain inside the plugin.
+Check persistent reuse/replacement/failure and episode reset; decision and observation
+expiry; dependency updates; chains and shared prerequisites; invalid graphs; schema
+errors; budget exhaustion; and direct actions with zero tool calls. Add a synthetic
+tool with a non-prompt argument schema and multiple prerequisites to verify that the
+controller does not depend on the current example pool.
+
+These checks establish orchestration behavior, not model judgment. Later evaluate
+selective calling against always-call and never-call baselines using task success
+and call count.

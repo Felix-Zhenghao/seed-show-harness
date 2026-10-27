@@ -1,9 +1,7 @@
-# Harness dependencies. scripts/setup_libero.sh installs these alongside LIBERO.
-numpy>=1.23.5,<2.0.0
-opencv-python>=4.10,<4.12   # LIBERO camera processing; 4.12+ requires numpy>=2
-imageio>=2.35.1
-imageio-ffmpeg>=0.5.1
-Pillow>=10.4.0
-PyYAML>=6.0.2
-requests>=2.32.3
-scipy>=1.10                 # Cartesian rotation math
+# Install the seed harness with the original LIBERO interpreter.
+numpy>=1.23,<2
+scipy>=1.10
+Pillow>=10.4
+requests>=2.32
+PyYAML>=6
+jsonschema>=4.23
