@@ -1,1 +1,0 @@
-"""Show-Harness regression tests."""
